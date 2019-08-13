@@ -28,9 +28,9 @@ namespace Oxide.Plugins
 
         private PluginConfiguration _configuration;
 
-        private readonly EnemyPrefabs _enemyPrefabs = new EnemyPrefabs("EnemyPrefabs");
-        private readonly WeaponPrefabs _weaponPrefabs = new WeaponPrefabs("WeaponPrefabs");
-        private readonly CombatEntityTypes _combatEntityTypes = new CombatEntityTypes("CombatEntityTypes");
+        private readonly EnemyPrefabs _enemyPrefabs = new EnemyPrefabs("EnemyPrefabs.json");
+        private readonly WeaponPrefabs _weaponPrefabs = new WeaponPrefabs("WeaponPrefabs.json");
+        private readonly CombatEntityTypes _combatEntityTypes = new CombatEntityTypes("CombatEntityTypes.json");
 
         private readonly Regex _colorTagRegex = new Regex(@"<color=.{0,7}>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private readonly Regex _sizeTagRegex = new Regex(@"<size=\d*>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -835,7 +835,7 @@ namespace Oxide.Plugins
             {
                 if (Translations.Messages == null)
                 {
-                    var defaults = new RemoteConfiguration<List<DeathMessage>>("DefaultMessages");
+                    var defaults = new RemoteConfiguration<List<DeathMessage>>("DefaultMessages.json");
                     defaults.Load(success =>
                     {
                         if (success)
@@ -881,7 +881,7 @@ namespace Oxide.Plugins
 
         internal sealed class RemoteConfiguration<T>
         {
-            private const string Host = "http://files.laserhydra.com/config/DeathNotes/v6.3.6/";
+            private const string Host = "https://gitlab.com/laserhydra/RemotePluginConfigurations/raw/master/DeathNotes/v6.3.6/";
 
             private readonly string _file;
 
