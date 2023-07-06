@@ -324,6 +324,7 @@ namespace Oxide.Plugins
             }
 
             message = InsertPlaceholderValues(message, replacements);
+            EmitRawDeathNotice(data, replacements, message);
 
             replacements = null;
             return message;
@@ -971,5 +972,18 @@ namespace Oxide.Plugins
         }
 
         #endregion
+
+        private void EmitRawDeathNotice(DeathData data, Dictionary<string, string> values, string message)
+        {
+            // Post-process the values
+            values.Add("killerId", data.KillerEntity.ToPlayer()?.userID.ToString());
+            values.Add("victimId", data.VictimEntity.ToPlayer()?.userID.ToString());
+            values.Add("damageType", data.DamageType.ToString());
+            values.Add("killerEntityType", data.KillerEntityType.ToString());
+            values.Add("victimEntityType", data.VictimEntityType.ToString());
+            
+            // Emit data hook
+            Interface.Call("OnRawDeathNotice", values, message);
+        }
     }
 }
