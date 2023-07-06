@@ -16,7 +16,8 @@ namespace Oxide.Plugins
     using WeaponPrefabs = DeathNotes.RemoteConfiguration<Dictionary<string, string>>;
     using CombatEntityTypes = DeathNotes.RemoteConfiguration<Dictionary<string, DeathNotes.CombatEntityType>>;
 
-    [Info("Death Notes (Ownzone)", "Ownzone", "6.3.6")]
+    [Info("Death Notes", "Ownzone", "6.3.8")]
+    [Description("Broadcasts deaths to chat along with detailed information")]
     class DeathNotes : RustPlugin
     {
         #region Fields
@@ -28,9 +29,9 @@ namespace Oxide.Plugins
 
         private PluginConfiguration _configuration;
 
-        private readonly EnemyPrefabs _enemyPrefabs = new EnemyPrefabs("EnemyPrefabs.json");
-        private readonly WeaponPrefabs _weaponPrefabs = new WeaponPrefabs("WeaponPrefabs.json");
-        private readonly CombatEntityTypes _combatEntityTypes = new CombatEntityTypes("CombatEntityTypes.json");
+        private readonly EnemyPrefabs _enemyPrefabs = new EnemyPrefabs("EnemyPrefabs");
+        private readonly WeaponPrefabs _weaponPrefabs = new WeaponPrefabs("WeaponPrefabs");
+        private readonly CombatEntityTypes _combatEntityTypes = new CombatEntityTypes("CombatEntityTypes");
 
         private readonly Regex _colorTagRegex = new Regex(@"<color=.{0,7}>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private readonly Regex _sizeTagRegex = new Regex(@"<size=\d*>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -96,10 +97,14 @@ namespace Oxide.Plugins
             _combatEntityTypes.Load();
         }
 
-        private void OnEntityTakeDamage(BaseCombatEntity victimEntity, HitInfo hitInfo)
+        private void Unload()
         {
-            if (!(victimEntity is BasePlayer))
-                return;
+            _instance = null;
+        }
+
+        private void OnEntityTakeDamage(BasePlayer victimEntity, HitInfo hitInfo)
+        {
+            if (victimEntity == null || hitInfo == null) return;
 
             // Don't track bleeding
             if (victimEntity.lastDamage == DamageType.Bleeding)
@@ -149,6 +154,9 @@ namespace Oxide.Plugins
             LogDebug($"Weapon: {hitInfo?.WeaponPrefab?.ShortPrefabName ?? "NULL"}");
 #endif
 
+            // Change entity type for dwellers
+            RepairEntityTypes(ref data);
+
             // Ignore deaths of other entities
             if (data.KillerEntityType == CombatEntityType.Other || data.VictimEntityType == CombatEntityType.Other)
                 return;
@@ -194,8 +202,42 @@ namespace Oxide.Plugins
                 Puts(StripRichText(message));
         }
 
+        private void RepairEntityTypes(ref DeathData data)
+        {
+            if (data.VictimEntity != null)
+            {
+                string victimPrefabName = data.VictimEntity.ShortPrefabName.ToLower();
+                if (victimPrefabName.Contains("underwaterdweller"))
+                {
+                    data.VictimEntityType = CombatEntityType.UnderwaterDweller;
+                }
+
+                if (victimPrefabName.Contains("tunneldweller"))
+                {
+                    data.VictimEntityType = CombatEntityType.TunnelDweller;
+                }
+            }
+
+            if (data.KillerEntity != null)
+            {
+                string killerPrefabName = data.KillerEntity.ShortPrefabName.ToLower();
+
+                if (killerPrefabName.Contains("underwaterdweller"))
+                {
+                    data.KillerEntityType = CombatEntityType.UnderwaterDweller;
+                }
+
+                if (killerPrefabName.Contains("tunneldweller"))
+                {
+                    data.KillerEntityType = CombatEntityType.TunnelDweller;
+                }
+            }
+        }
+
         private void OnFlameThrowerBurn(FlameThrower flameThrower, BaseEntity baseEntity)
         {
+            if (flameThrower == null || baseEntity == null) return;
+            
             var flame = baseEntity.gameObject.AddComponent<Flame>();
             flame.Source = Flame.FlameSource.Flamethrower;
             flame.SourceEntity = flameThrower;
@@ -204,6 +246,8 @@ namespace Oxide.Plugins
 
         private void OnFlameExplosion(FlameExplosive explosive, BaseEntity baseEntity)
         {
+            if (explosive == null || baseEntity == null) return;
+            
             var flame = baseEntity.gameObject.AddComponent<Flame>();
             flame.Source = Flame.FlameSource.IncendiaryProjectile;
             flame.SourceEntity = explosive;
@@ -212,14 +256,15 @@ namespace Oxide.Plugins
 
         private void OnFireBallSpread(FireBall fireBall, BaseEntity newFire)
         {
+            if (fireBall == null) return;
+            
             var flame = fireBall.GetComponent<Flame>();
-            if (flame != null)
-            {
-                var newFlame = newFire.gameObject.AddComponent<Flame>();
-                newFlame.Source = flame.Source;
-                newFlame.SourceEntity = flame.SourceEntity;
-                newFlame.Initiator = flame.Initiator;
-            }
+            if (flame == null) return;
+            
+            var newFlame = newFire.gameObject.AddComponent<Flame>();
+            newFlame.Source = flame.Source;
+            newFlame.SourceEntity = flame.SourceEntity;
+            newFlame.Initiator = flame.Initiator;
         }
 
         private void OnFireBallDamage(FireBall fireBall, BaseCombatEntity target, HitInfo hitInfo) => hitInfo.Initiator = fireBall;
@@ -279,24 +324,9 @@ namespace Oxide.Plugins
             }
 
             message = InsertPlaceholderValues(message, replacements);
-            
-            EmitRawDeathNotice(data, replacements, message);
-            
+
             replacements = null;
             return message;
-        }
-
-        private void EmitRawDeathNotice(DeathData data, Dictionary<string, string> values, string message)
-        {
-            // Post-process the values
-            values.Add("killerId", data.KillerEntity.ToPlayer()?.userID.ToString());
-            values.Add("victimId", data.VictimEntity.ToPlayer()?.userID.ToString());
-            values.Add("damageType", data.DamageType.ToString());
-            values.Add("killerEntityType", data.KillerEntityType.ToString());
-            values.Add("victimEntityType", data.VictimEntityType.ToString());
-            
-            // Emit data hook
-            Interface.Call("OnRawDeathNotice", values, message);
         }
 
         private struct DeathData
@@ -332,11 +362,11 @@ namespace Oxide.Plugins
 
             if (_combatEntityTypes.Contents != null)
             {
-                if (_combatEntityTypes.Contents.ContainsKey(entity.ShortPrefabName))
-                    return _combatEntityTypes.Contents[entity.ShortPrefabName];
-
                 if (_combatEntityTypes.Contents.ContainsKey(entity.GetType().Name))
                     return _combatEntityTypes.Contents[entity.GetType().Name];
+                
+                if (_combatEntityTypes.Contents.ContainsKey(entity.ShortPrefabName))
+                    return _combatEntityTypes.Contents[entity.ShortPrefabName];
             }
 
             if (entity is BaseOven)
@@ -357,6 +387,12 @@ namespace Oxide.Plugins
             if (entity is IOEntity)
                 return CombatEntityType.Trap;
 
+            if (entity is ScientistNPC)
+                return CombatEntityType.Scientist;
+
+            if (entity.GetType().Name.Equals("ZombieNPC"))
+                return CombatEntityType.ZombieNPC;
+            
             return CombatEntityType.Other;
         }
 
@@ -393,9 +429,10 @@ namespace Oxide.Plugins
                 case CombatEntityType.Player:
                     return StripRichText(entity.ToPlayer().displayName);
 
-                case CombatEntityType.Scientist:
                 case CombatEntityType.Murderer:
                 case CombatEntityType.Scarecrow:
+                case CombatEntityType.Scientist:
+                case CombatEntityType.ZombieNPC:
                     var name = entity.ToPlayer()?.displayName;
 
                     if (!string.IsNullOrEmpty(name) && name != entity.ToPlayer()?.userID.ToString())
@@ -442,9 +479,6 @@ namespace Oxide.Plugins
             Animal = 2,
             Murderer = 3,
             Scientist = 4,
-            Scarecrow = 16,
-            TunnelDweller = 17,
-            UnderwaterDweller = 18,
             Player = 5,
             Trap = 6,
             Turret = 7,
@@ -455,7 +489,11 @@ namespace Oxide.Plugins
             Lock = 12,
             Sentry = 13,
             Other = 14,
-            None = 15
+            None = 15,
+            Scarecrow = 16,
+            TunnelDweller = 17,
+            UnderwaterDweller = 18,
+            ZombieNPC = 19
         }
 
         #endregion
@@ -835,7 +873,7 @@ namespace Oxide.Plugins
             {
                 if (Translations.Messages == null)
                 {
-                    var defaults = new RemoteConfiguration<List<DeathMessage>>("DefaultMessages.json");
+                    var defaults = new RemoteConfiguration<List<DeathMessage>>("DefaultMessages");
                     defaults.Load(success =>
                     {
                         if (success)
@@ -881,7 +919,7 @@ namespace Oxide.Plugins
 
         internal sealed class RemoteConfiguration<T>
         {
-            private const string Host = "https://gitlab.com/laserhydra/RemotePluginConfigurations/raw/master/DeathNotes/v6.3.6/";
+            private const string Host = "http://files.laserhydra.com/config/DeathNotes/v6.3.6/";
 
             private readonly string _file;
 
